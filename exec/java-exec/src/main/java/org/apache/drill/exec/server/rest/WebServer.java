@@ -25,6 +25,7 @@ import com.google.common.collect.ImmutableSet;
 import org.apache.commons.lang3.RandomStringUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.drill.common.config.DrillConfig;
+import org.apache.drill.common.exceptions.DrillException;
 import org.apache.drill.exec.ExecConstants;
 import org.apache.drill.exec.exception.DrillbitStartupException;
 import org.apache.drill.exec.rpc.security.plain.PlainFactory;
@@ -53,6 +54,7 @@ import org.eclipse.jetty.server.Server;
 import org.eclipse.jetty.server.ServerConnector;
 import org.eclipse.jetty.server.SessionManager;
 import org.eclipse.jetty.server.SslConnectionFactory;
+import org.apache.drill.exec.server.rest.sslValidator;
 import org.eclipse.jetty.server.handler.ErrorHandler;
 import org.eclipse.jetty.server.session.HashSessionManager;
 import org.eclipse.jetty.server.session.SessionHandler;
@@ -140,7 +142,12 @@ public class WebServer implements AutoCloseable {
 
     final ServerConnector serverConnector;
     if (config.getBoolean(ExecConstants.HTTP_ENABLE_SSL)) {
-      serverConnector = createHttpsConnector();
+      try {
+        serverConnector = createHttpsConnector();
+      }
+      catch(DrillException e){
+        throw new DrillbitStartupException(e.getMessage(),e.getCause());
+      }
     } else {
       serverConnector = createHttpConnector();
     }
@@ -264,28 +271,19 @@ public class WebServer implements AutoCloseable {
     logger.info("Setting up HTTPS connector for web server");
 
     final SslContextFactory sslContextFactory = new SslContextFactory();
-
-    final boolean hasPath = config.hasPath(ExecConstants.HTTP_KEYSTORE_PATH);
-    final boolean hasPassword = config.hasPath(ExecConstants.HTTP_KEYSTORE_PASSWORD);
-
-    // Check if both keypath and password are present or not
-    if (hasPath && hasPassword) {
-      final String pathValue = config.getString(ExecConstants.HTTP_KEYSTORE_PATH);
-      final String passwordValue = config.getString(ExecConstants.HTTP_KEYSTORE_PASSWORD);
-
-      // checking if any one of them is null or empty
-      if (!Strings.isNullOrEmpty(pathValue) && !Strings.isNullOrEmpty(passwordValue)) {
-        sslContextFactory.setKeyStorePath(pathValue);
-        sslContextFactory.setKeyStorePassword(passwordValue);
+    sslValidator sslv = new sslValidator(config);
+    if(sslv.validateKeystore){
+      sslContextFactory.setKeyStorePath(sslv.getkeystorePath());
+      sslContextFactory.setKeyStorePassword(sslv.getkeystorePassword());
+      if(!sslv.gettruststorePath().trim().isEmpty()){
+        sslContextFactory.setTrustStorePath(sslv.gettruststorePath());
+        if(!sslv.gettruststorePassword().trim().isEmpty()){
+          sslContextFactory.setTrustStorePath(sslv.gettruststorePassword());
+        }
       }
 
-      // Throwing an exception if anyone of them is null or empty
-      else {
-        throw new DrillbitStartupException("keystorepath and/or keystorepassword can't be empty.");
-      }
-    } else if (hasPath || hasPassword) {
-      throw new DrillbitStartupException("Either of keystorepath or keystorepassword is absent. Please provide both the parameters or none of it for self-signed certificate.");
-    } else {
+    }
+    else {
       logger.info("Using generated self-signed SSL settings for web server");
       final SecureRandom random = new SecureRandom();
 

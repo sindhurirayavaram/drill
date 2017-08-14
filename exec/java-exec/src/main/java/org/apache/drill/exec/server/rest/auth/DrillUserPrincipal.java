@@ -34,6 +34,8 @@ public class DrillUserPrincipal implements Principal {
 
   public static final String ADMIN_ROLE = "admin";
 
+  public static final String REALM_ROLE = "QA.LAB";
+
   public static final String[] ADMIN_USER_ROLES = new String[]{AUTHENTICATED_ROLE, ADMIN_ROLE};
 
   public static final String[] NON_ADMIN_USER_ROLES = new String[]{AUTHENTICATED_ROLE};

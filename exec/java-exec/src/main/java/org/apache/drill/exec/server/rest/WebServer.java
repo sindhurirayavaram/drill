@@ -24,15 +24,20 @@ import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
 import org.apache.commons.lang3.RandomStringUtils;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.drill.common.KerberosUtil;
 import org.apache.drill.common.exceptions.DrillException;
 import org.apache.drill.common.config.DrillConfig;
 import org.apache.drill.exec.ExecConstants;
 import org.apache.drill.exec.SSLConfig;
 import org.apache.drill.exec.exception.DrillbitStartupException;
+import org.apache.drill.exec.rpc.security.FastSaslServerFactory;
+import org.apache.drill.exec.rpc.security.kerberos.KerberosFactory;
 import org.apache.drill.exec.rpc.security.plain.PlainFactory;
 import org.apache.drill.exec.server.BootStrapContext;
 import org.apache.drill.exec.server.rest.auth.DrillRestLoginService;
+import org.apache.drill.exec.server.rest.auth.SpnegoAuthService;
 import org.apache.drill.exec.work.WorkManager;
+import org.apache.hadoop.security.UserGroupInformation;
 import org.bouncycastle.asn1.x500.X500NameBuilder;
 import org.bouncycastle.asn1.x500.style.BCStyle;
 import org.bouncycastle.cert.X509v3CertificateBuilder;
@@ -44,10 +49,14 @@ import org.eclipse.jetty.http.HttpVersion;
 import org.eclipse.jetty.security.Authenticator;
 import org.eclipse.jetty.security.ConstraintMapping;
 import org.eclipse.jetty.security.ConstraintSecurityHandler;
+import org.eclipse.jetty.security.DefaultIdentityService;
+import org.eclipse.jetty.security.IdentityService;
 import org.eclipse.jetty.security.LoginService;
 import org.eclipse.jetty.security.SecurityHandler;
+import org.eclipse.jetty.security.SpnegoLoginService;
 import org.eclipse.jetty.security.authentication.FormAuthenticator;
 import org.eclipse.jetty.security.authentication.SessionAuthentication;
+import org.eclipse.jetty.security.authentication.SpnegoAuthenticator;
 import org.eclipse.jetty.server.HttpConfiguration;
 import org.eclipse.jetty.server.HttpConnectionFactory;
 import org.eclipse.jetty.server.SecureRequestCustomizer;
@@ -64,10 +73,12 @@ import org.eclipse.jetty.servlet.ServletContextHandler;
 import org.eclipse.jetty.servlet.ServletHolder;
 import org.eclipse.jetty.servlets.CrossOriginFilter;
 import org.eclipse.jetty.util.resource.Resource;
+import org.eclipse.jetty.util.security.Constraint;
 import org.eclipse.jetty.util.ssl.SslContextFactory;
 import org.glassfish.jersey.servlet.ServletContainer;
 import org.joda.time.DateTime;
 
+import javax.security.sasl.SaslServer;
 import javax.servlet.DispatcherType;
 import javax.servlet.http.HttpSession;
 import javax.servlet.http.HttpSessionEvent;
@@ -76,15 +87,19 @@ import java.math.BigInteger;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.security.KeyStore;
+import java.security.PrivilegedExceptionAction;
 import java.security.SecureRandom;
 import java.security.cert.X509Certificate;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Date;
 import java.util.EnumSet;
+import java.util.List;
 import java.util.Set;
 
 import static org.apache.drill.exec.server.rest.auth.DrillUserPrincipal.ADMIN_ROLE;
 import static org.apache.drill.exec.server.rest.auth.DrillUserPrincipal.AUTHENTICATED_ROLE;
+import static org.apache.drill.exec.server.rest.auth.DrillUserPrincipal.REALM_ROLE;
 
 /**
  * Wrapper class around jetty based webserver.
@@ -98,7 +113,7 @@ public class WebServer implements AutoCloseable {
 
   private final WorkManager workManager;
 
-  private final Server embeddedJetty;
+  private Server embeddedJetty;
 
   private final BootStrapContext context;
 
@@ -115,7 +130,20 @@ public class WebServer implements AutoCloseable {
     this.workManager = workManager;
 
     if (config.getBoolean(ExecConstants.HTTP_ENABLE)) {
-      embeddedJetty = new Server();
+
+      try {
+        UserGroupInformation ugi = UserGroupInformation.getLoginUser();
+
+        embeddedJetty = ugi.doAs(new PrivilegedExceptionAction<Server>() {
+          @Override
+          public Server run() throws Exception {
+            return new Server();
+          }
+        });
+      } catch (Exception e) {
+        logger.error("Failed to create jetty server");
+        embeddedJetty = null;
+      }
     } else {
       embeddedJetty = null;
     }
@@ -252,12 +280,26 @@ public class WebServer implements AutoCloseable {
   private ConstraintSecurityHandler createSecurityHandler() {
     ConstraintSecurityHandler security = new ConstraintSecurityHandler();
 
-    Set<String> knownRoles = ImmutableSet.of(AUTHENTICATED_ROLE, ADMIN_ROLE);
-    security.setConstraintMappings(Collections.<ConstraintMapping>emptyList(), knownRoles);
+    //Set<String> knownRoles = ImmutableSet.of(AUTHENTICATED_ROLE, ADMIN_ROLE,REALM_ROLE);
+    //security.setConstraintMappings(Collections.<ConstraintMapping>emptyList(), knownRoles);
+    Constraint constraint = new Constraint();
+    constraint.setName(Constraint.__SPNEGO_AUTH);
+    constraint.setRoles(new String[]{REALM_ROLE});
+    constraint.setAuthenticate(true);
 
-    security.setAuthenticator(new FormAuthenticator("/login", "/login", true));
-    security.setLoginService(new DrillRestLoginService(workManager.getContext()));
+    ConstraintMapping cm = new ConstraintMapping();
+    cm.setConstraint(constraint);
+    cm.setPathSpec("/*");
 
+    security.setAuthenticator(new SpnegoAuthenticator());
+    final SpnegoLoginService loginService = new SpnegoAuthService("QA.LAB","/etc/spnego.properties");
+    final IdentityService identityService = new DefaultIdentityService();
+    loginService.setIdentityService(identityService);
+    security.setLoginService(loginService);
+
+    List<ConstraintMapping> cmapList = new ArrayList<>();
+    cmapList.add(cm);
+    security.setConstraintMappings(cmapList);
     return security;
   }
 

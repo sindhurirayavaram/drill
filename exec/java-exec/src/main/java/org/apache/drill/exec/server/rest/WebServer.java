@@ -182,6 +182,7 @@ public class WebServer implements AutoCloseable {
     }
     embeddedJetty.addConnector(serverConnector);
 
+
     // Add resources
     final ErrorHandler errorHandler = new ErrorHandler();
     errorHandler.setShowStacks(true);

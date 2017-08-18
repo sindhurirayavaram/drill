@@ -30,7 +30,7 @@ import org.apache.drill.exec.server.rest.auth.DrillUserPrincipal;
 import org.glassfish.jersey.server.mvc.Viewable;
 
 @Path("/threads")
-@RolesAllowed(DrillUserPrincipal.ADMIN_ROLE)
+@RolesAllowed(DrillUserPrincipal.REALM_ROLE)
 public class ThreadsResources {
   static final org.slf4j.Logger logger = org.slf4j.LoggerFactory.getLogger(MetricsResources.class);
 

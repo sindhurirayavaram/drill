@@ -275,6 +275,17 @@ public class WebServer implements AutoCloseable {
 
     return new SessionHandler(sessionManager);
   }
+  private ConstraintSecurityHandler createSecurityHandlerpam() {
+    ConstraintSecurityHandler security = new ConstraintSecurityHandler();
+
+    Set<String> knownRoles = ImmutableSet.of(AUTHENTICATED_ROLE, ADMIN_ROLE);
+    security.setConstraintMappings(Collections.<ConstraintMapping>emptyList(), knownRoles);
+
+    security.setAuthenticator(new FormAuthenticator("/login", "/login", true));
+    security.setLoginService(new DrillRestLoginService(workManager.getContext()));
+
+    return security;
+  }
 
   /**
    * @return {@link SecurityHandler} with appropriate {@link LoginService}, {@link Authenticator} and constraints.

@@ -35,6 +35,7 @@ import org.apache.drill.exec.rpc.security.kerberos.KerberosFactory;
 import org.apache.drill.exec.rpc.security.plain.PlainFactory;
 import org.apache.drill.exec.server.BootStrapContext;
 import org.apache.drill.exec.server.rest.auth.DrillRestLoginService;
+import org.apache.drill.exec.server.rest.auth.DrillSpnegoAuthenticator;
 import org.apache.drill.exec.server.rest.auth.SpnegoAuthService;
 import org.apache.drill.exec.work.WorkManager;
 import org.apache.hadoop.security.UserGroupInformation;
@@ -292,7 +293,7 @@ public class WebServer implements AutoCloseable {
     cm.setConstraint(constraint);
     cm.setPathSpec("/*");
 
-    security.setAuthenticator(new SpnegoAuthenticator());
+    security.setAuthenticator(new DrillSpnegoAuthenticator());
     final SpnegoLoginService loginService = new SpnegoAuthService("QA.LAB","/etc/spnego.properties");
     final IdentityService identityService = new DefaultIdentityService();
     loginService.setIdentityService(identityService);

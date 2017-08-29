@@ -40,7 +40,7 @@ import java.util.List;
 import java.util.Map;
 
 @Path("/")
-@RolesAllowed(DrillUserPrincipal.REALM_ROLE)
+@RolesAllowed(DrillUserPrincipal.ADMIN_ROLE)
 public class QueryResources {
   static final org.slf4j.Logger logger = org.slf4j.LoggerFactory.getLogger(QueryResources.class);
 

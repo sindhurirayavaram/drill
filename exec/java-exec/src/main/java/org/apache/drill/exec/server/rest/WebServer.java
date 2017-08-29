@@ -36,7 +36,7 @@ import org.apache.drill.exec.rpc.security.plain.PlainFactory;
 import org.apache.drill.exec.server.BootStrapContext;
 import org.apache.drill.exec.server.rest.auth.DrillRestLoginService;
 import org.apache.drill.exec.server.rest.auth.DrillSpnegoAuthenticator;
-import org.apache.drill.exec.server.rest.auth.SpnegoAuthService;
+import org.apache.drill.exec.server.rest.auth.DrillSpnegoLoginService;
 import org.apache.drill.exec.work.WorkManager;
 import org.apache.hadoop.security.UserGroupInformation;
 import org.bouncycastle.asn1.x500.X500NameBuilder;
@@ -212,7 +212,8 @@ public class WebServer implements AutoCloseable {
     servletContextHandler.addServlet(staticHolder, "/static/*");
 
     if (authEnabled) {
-      servletContextHandler.setSecurityHandler(createSecurityHandler());
+      WrapperHandler wh = new WrapperHandler(workManager);
+      servletContextHandler.setSecurityHandler(wh);
       servletContextHandler.setSessionHandler(createSessionHandler(servletContextHandler.getSecurityHandler()));
     }
 
@@ -293,26 +294,26 @@ public class WebServer implements AutoCloseable {
   private ConstraintSecurityHandler createSecurityHandler() {
     ConstraintSecurityHandler security = new ConstraintSecurityHandler();
 
-    //Set<String> knownRoles = ImmutableSet.of(AUTHENTICATED_ROLE, ADMIN_ROLE,REALM_ROLE);
+    Set<String> knownRoles = ImmutableSet.of(AUTHENTICATED_ROLE, ADMIN_ROLE,REALM_ROLE);
     //security.setConstraintMappings(Collections.<ConstraintMapping>emptyList(), knownRoles);
     Constraint constraint = new Constraint();
     constraint.setName(Constraint.__SPNEGO_AUTH);
-    constraint.setRoles(new String[]{REALM_ROLE});
+   // constraint.setRoles(new String[]{ADMIN_ROLE,AUTHENTICATED_ROLE});
     constraint.setAuthenticate(true);
 
-    ConstraintMapping cm = new ConstraintMapping();
-    cm.setConstraint(constraint);
-    cm.setPathSpec("/*");
+    //ConstraintMapping cm = new ConstraintMapping();
+   // cm.setConstraint(constraint);
+   // cm.setPathSpec("/*");
 
     security.setAuthenticator(new DrillSpnegoAuthenticator());
-    final SpnegoLoginService loginService = new SpnegoAuthService("QA.LAB","/etc/spnego.properties");
+    final SpnegoLoginService loginService = new DrillSpnegoLoginService("QA.LAB","/etc/spnego.properties",workManager.getContext());
     final IdentityService identityService = new DefaultIdentityService();
     loginService.setIdentityService(identityService);
     security.setLoginService(loginService);
 
     List<ConstraintMapping> cmapList = new ArrayList<>();
-    cmapList.add(cm);
-    security.setConstraintMappings(cmapList);
+    //cmapList.add(cm);
+    security.setConstraintMappings(cmapList,knownRoles);
     return security;
   }
 

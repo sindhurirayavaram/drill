@@ -17,14 +17,26 @@
  */
 package org.apache.drill.exec.server.rest.auth;
 
+import org.apache.drill.exec.ExecConstants;
+import org.apache.drill.exec.server.DrillbitContext;
+import org.apache.drill.exec.server.options.SystemOptionManager;
+import org.apache.drill.exec.util.ImpersonationUtil;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.CommonConfigurationKeys;
 import org.apache.hadoop.security.UserGroupInformation;
 import org.eclipse.jetty.security.LoginService;
 import org.eclipse.jetty.security.SpnegoLoginService;
+import org.eclipse.jetty.security.SpnegoUserPrincipal;
 import org.eclipse.jetty.security.authentication.SessionAuthentication;
 import org.eclipse.jetty.server.Authentication;
 import org.eclipse.jetty.server.UserIdentity;
+import org.eclipse.jetty.util.B64Code;
+import org.ietf.jgss.GSSContext;
+import org.ietf.jgss.GSSCredential;
+import org.ietf.jgss.GSSException;
+import org.ietf.jgss.GSSManager;
+import org.ietf.jgss.GSSName;
+import org.ietf.jgss.Oid;
 
 import javax.security.auth.Subject;
 import javax.security.auth.kerberos.KerberosPrincipal;
@@ -38,8 +50,8 @@ import java.security.Principal;
 import java.security.PrivilegedAction;
 import java.security.PrivilegedExceptionAction;
 
-public class SpnegoAuthService extends SpnegoLoginService implements LoginService{
-    private static final org.slf4j.Logger logger = org.slf4j.LoggerFactory.getLogger(SpnegoAuthService.class);
+public class DrillSpnegoLoginService extends SpnegoLoginService implements LoginService{
+    private static final org.slf4j.Logger logger = org.slf4j.LoggerFactory.getLogger(DrillSpnegoLoginService.class);
 
     private UserIdentity identity;
 
@@ -47,11 +59,16 @@ public class SpnegoAuthService extends SpnegoLoginService implements LoginServic
 
     private Subject sub;
 
+    private final String serverPrincipal;
+
+    private final DrillbitContext drillContext;
 
 
 
 
-    public SpnegoAuthService(String name, String config) {
+
+
+    public DrillSpnegoLoginService(String name, String config, final DrillbitContext drillbitContext) {
 
         super(name, config);
        serverSubject = new Subject();
@@ -61,7 +78,8 @@ public class SpnegoAuthService extends SpnegoLoginService implements LoginServic
         Principal krbPrincipal = new KerberosPrincipal("HTTP/qa-node163.qa.lab@QA.LAB");
         //String s = System.getProperty("javax.security.auth.useSubjectCredsOnly");
         serverSubject.getPrincipals().add(krbPrincipal);
-
+        serverPrincipal=name;
+        drillContext = drillbitContext;
 
     }
 
@@ -94,14 +112,64 @@ public class SpnegoAuthService extends SpnegoLoginService implements LoginServic
             identity = ugi.doAs(new PrivilegedExceptionAction<UserIdentity>() {
                 @Override
                 public UserIdentity run() {
-                    return SpnegoAuthService.super.login(username, credentials);
+                    return DrillSpnegoLoginService.this.spnegologin(username, credentials);
                 }
             });
+
+            Subject userSubject = identity.getSubject();
+
 
         } catch (Exception e) {
             logger.error("Failed to login using SPNEGO");
         }
         return identity;
+    }
+
+    public UserIdentity spnegologin(String username, Object credentials) {
+        String encodedAuthToken = (String)credentials;
+        byte[] authToken = B64Code.decode(encodedAuthToken);
+        GSSManager manager = GSSManager.getInstance();
+
+        try {
+            Oid krb5Oid = new Oid("1.3.6.1.5.5.2");
+            GSSName gssName = manager.createName("HTTP/qa-node163.qa.lab", (Oid)null);
+            GSSCredential serverCreds = manager.createCredential(gssName, 2147483647, krb5Oid, 2);
+            GSSContext gContext = manager.createContext(serverCreds);
+            if(gContext == null) {
+                //LOG.debug("SpnegoUserRealm: failed to establish GSSContext", new Object[0]);
+            } else {
+                while(!gContext.isEstablished()) {
+                    authToken = gContext.acceptSecContext(authToken, 0, authToken.length);
+                }
+
+                if(gContext.isEstablished()) {
+                    String clientName = gContext.getSrcName().toString();
+                    String role = clientName.substring(0,clientName.indexOf(64));
+                   // LOG.debug("SpnegoUserRealm: established a security context", new Object[0]);
+                    //LOG.debug("Client Principal is: " + gContext.getSrcName(), new Object[0]);
+                   // LOG.debug("Server Principal is: " + gContext.getTargName(), new Object[0]);
+                   // LOG.debug("Client Default Role: " + role, new Object[0]);
+                    final SystemOptionManager sysOptions = drillContext.getOptionManager();
+
+                    final boolean isAdmin = ImpersonationUtil.hasAdminPrivileges(role,
+                            sysOptions.getOption(ExecConstants.ADMIN_USERS_KEY).string_val,
+                            sysOptions.getOption(ExecConstants.ADMIN_USER_GROUPS_KEY).string_val);
+                    SpnegoUserPrincipal user = new SpnegoUserPrincipal(clientName, authToken);
+                    Subject subject = new Subject();
+                    subject.getPrincipals().add(user);
+                    if(isAdmin) {
+                        return this._identityService.newUserIdentity(subject, user, DrillUserPrincipal.ADMIN_USER_ROLES);
+                    }
+                    else {
+                        return this._identityService.newUserIdentity(subject, user, DrillUserPrincipal.NON_ADMIN_USER_ROLES);
+                    }
+                }
+            }
+        } catch (GSSException var14) {
+            //LOG.warn(var14);
+        }
+
+        return null;
     }
 
 }

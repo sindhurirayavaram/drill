@@ -34,6 +34,7 @@ import org.apache.drill.exec.rpc.security.FastSaslServerFactory;
 import org.apache.drill.exec.rpc.security.kerberos.KerberosFactory;
 import org.apache.drill.exec.rpc.security.plain.PlainFactory;
 import org.apache.drill.exec.server.BootStrapContext;
+import org.apache.drill.exec.server.rest.auth.DrillErrorHandler;
 import org.apache.drill.exec.server.rest.auth.DrillRestLoginService;
 import org.apache.drill.exec.server.rest.auth.DrillSpnegoAuthenticator;
 import org.apache.drill.exec.server.rest.auth.DrillSpnegoLoginService;
@@ -69,6 +70,7 @@ import org.eclipse.jetty.server.handler.ErrorHandler;
 import org.eclipse.jetty.server.session.HashSessionManager;
 import org.eclipse.jetty.server.session.SessionHandler;
 import org.eclipse.jetty.servlet.DefaultServlet;
+import org.eclipse.jetty.servlet.ErrorPageErrorHandler;
 import org.eclipse.jetty.servlet.FilterHolder;
 import org.eclipse.jetty.servlet.ServletContextHandler;
 import org.eclipse.jetty.servlet.ServletHolder;
@@ -185,12 +187,15 @@ public class WebServer implements AutoCloseable {
 
 
     // Add resources
-    final ErrorHandler errorHandler = new ErrorHandler();
+    final DrillErrorHandler errorHandler = new DrillErrorHandler();
+   //errorHandler.addErrorPage(401, "/login");
     errorHandler.setShowStacks(true);
     errorHandler.setShowMessageInTitle(true);
 
+
     final ServletContextHandler servletContextHandler = new ServletContextHandler(ServletContextHandler.SESSIONS);
     servletContextHandler.setErrorHandler(errorHandler);
+
     servletContextHandler.setContextPath("/");
 
     final ServletHolder servletHolder = new ServletHolder(new ServletContainer(new DrillRestServer(workManager)));
@@ -296,14 +301,24 @@ public class WebServer implements AutoCloseable {
 
     Set<String> knownRoles = ImmutableSet.of(AUTHENTICATED_ROLE, ADMIN_ROLE,REALM_ROLE);
     //security.setConstraintMappings(Collections.<ConstraintMapping>emptyList(), knownRoles);
-    Constraint constraint = new Constraint();
+   Constraint constraint = new Constraint();
     constraint.setName(Constraint.__SPNEGO_AUTH);
-   // constraint.setRoles(new String[]{ADMIN_ROLE,AUTHENTICATED_ROLE});
-    constraint.setAuthenticate(true);
+   constraint.setRoles(new String[]{ADMIN_ROLE,AUTHENTICATED_ROLE,REALM_ROLE});
+   constraint.setAuthenticate(true);
 
-    //ConstraintMapping cm = new ConstraintMapping();
-   // cm.setConstraint(constraint);
-   // cm.setPathSpec("/*");
+    ConstraintMapping cm = new ConstraintMapping();
+    cm.setConstraint(constraint);
+   cm.setPathSpec("*");
+
+    Constraint constraint1 = new Constraint();
+
+    constraint.setName(Constraint.__SPNEGO_AUTH);
+    constraint.setRoles(new String[]{});
+    constraint.setAuthenticate(true);
+    ConstraintMapping cm1 = new ConstraintMapping();
+    cm.setConstraint(constraint1);
+    cm.setPathSpec("/");
+
 
     security.setAuthenticator(new DrillSpnegoAuthenticator());
     final SpnegoLoginService loginService = new DrillSpnegoLoginService("QA.LAB","/etc/spnego.properties",workManager.getContext());
@@ -312,7 +327,8 @@ public class WebServer implements AutoCloseable {
     security.setLoginService(loginService);
 
     List<ConstraintMapping> cmapList = new ArrayList<>();
-    //cmapList.add(cm);
+    cmapList.add(cm);
+    //cmapList.add(cm1);
     security.setConstraintMappings(cmapList,knownRoles);
     return security;
   }

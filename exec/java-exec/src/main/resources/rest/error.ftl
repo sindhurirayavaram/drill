@@ -10,12 +10,7 @@
   language governing permissions and limitations under the License. -->
 
 <html>
-<a href="/queries">back</a><br />
-
-<pre>
-${model.printStackTrace()}
-</pre>
-
+<p> hi </p>
 
 
 <html>

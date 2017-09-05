@@ -69,6 +69,18 @@ public class LogInLogOutResources {
     return ViewableWithPermissions.createLoginPage(null);
   }
 
+  @GET
+  @Path("/sn")
+  @Produces(MediaType.TEXT_HTML)
+  public void getspnegologin(@Context HttpServletRequest request, @Context HttpServletResponse response,
+                               @Context SecurityContext sc, @Context UriInfo uriInfo, @QueryParam(REDIRECT_QUERY_PARM) String redirect)
+          throws Exception {
+
+      request.getRequestDispatcher("/").forward(request, response);
+
+
+  }
+
   // Request type is POST because POST request which contains the login credentials are invalid and the request is
   // dispatched here directly.
   @POST
@@ -88,4 +100,11 @@ public class LogInLogOutResources {
 
     req.getRequestDispatcher("/").forward(req, resp);
   }
+  @GET
+  @Path("/error")
+  @Produces(MediaType.TEXT_HTML)
+  public void error(@Context HttpServletRequest req, @Context HttpServletResponse resp) throws Exception {
+    //req.getRequestDispatcher("/").forward(req, resp);
+  }
+
 }

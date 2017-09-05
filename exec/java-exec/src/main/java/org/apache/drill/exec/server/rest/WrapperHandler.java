@@ -21,6 +21,7 @@ import com.google.common.collect.ImmutableSet;
 import org.apache.drill.exec.server.rest.auth.DrillRestLoginService;
 import org.apache.drill.exec.server.rest.auth.DrillSpnegoAuthenticator;
 
+import org.apache.drill.exec.server.rest.auth.DrillSpnegoLoginService;
 import org.apache.drill.exec.work.WorkManager;
 import org.eclipse.jetty.http.HttpHeader;
 import org.eclipse.jetty.security.Authenticator;
@@ -33,6 +34,7 @@ import org.eclipse.jetty.security.RoleInfo;
 import org.eclipse.jetty.security.SecurityHandler;
 import org.eclipse.jetty.security.SpnegoLoginService;
 import org.eclipse.jetty.security.authentication.FormAuthenticator;
+import org.eclipse.jetty.server.Authentication;
 import org.eclipse.jetty.server.Handler;
 import org.eclipse.jetty.server.HandlerContainer;
 import org.eclipse.jetty.server.HttpChannel;
@@ -48,6 +50,7 @@ import org.eclipse.jetty.util.security.Constraint;
 import javax.servlet.ServletException;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
+import javax.servlet.http.HttpSession;
 import javax.servlet.http.HttpSessionEvent;
 import javax.servlet.http.HttpSessionListener;
 import java.io.IOException;
@@ -63,6 +66,9 @@ import static org.apache.drill.exec.server.rest.auth.DrillUserPrincipal.REALM_RO
 
 
 public class WrapperHandler extends ConstraintSecurityHandler {
+
+
+    private String auth;
 
     private final WorkManager workManager;
     CustomConstraintSecurityHandler basicsecurity;
@@ -80,46 +86,98 @@ public class WrapperHandler extends ConstraintSecurityHandler {
 
         basicsecurity.setAuthenticator(new FormAuthenticator("/login", "/login", true));
         basicsecurity.setLoginService(new DrillRestLoginService(workManager.getContext()));
-        //basicsecurity.setHandler(getCurrentSecurityHandler());
-       // spnegosecurity = new CustomConstraintSecurityHandler();
-      /*  Constraint constraint = new Constraint();
+        //basicsecurity.setHandler(getCurrentSecurityHandler());*/
+       spnegosecurity = new CustomConstraintSecurityHandler();
+       Constraint constraint = new Constraint();
         constraint.setName(Constraint.__SPNEGO_AUTH);
-        constraint.setRoles(new String[]{REALM_ROLE});
+        constraint.setRoles(new String[]{ADMIN_ROLE,AUTHENTICATED_ROLE});
         constraint.setAuthenticate(true);
 
         ConstraintMapping cm = new ConstraintMapping();
         cm.setConstraint(constraint);
         cm.setPathSpec("/*");
 
+        Constraint rootConstraint = new Constraint();
+        rootConstraint.setAuthenticate(false);
+        ConstraintMapping cm1 = new ConstraintMapping();
+        cm1.setConstraint(rootConstraint);
+        cm1.setPathSpec("/");
+
         spnegosecurity.setAuthenticator(new DrillSpnegoAuthenticator());
-      //  final SpnegoLoginService loginService = new SpnegoAuthService("QA.LAB","/etc/spnego.properties");
-       // final IdentityService identityService = new DefaultIdentityService();
-       // loginService.setIdentityService(identityService);
-       // spnegosecurity.setLoginService(loginService);
+       final SpnegoLoginService loginService = new DrillSpnegoLoginService("QA.LAB","/etc/spnego.properties",workManager.getContext());
+        final IdentityService identityService = new DefaultIdentityService();
+        loginService.setIdentityService(identityService);
+        spnegosecurity.setLoginService(loginService);
 
         List<ConstraintMapping> cmapList = new ArrayList<>();
+      //  cmapList.add(cm1);
         cmapList.add(cm);
-        spnegosecurity.setConstraintMappings(cmapList);
-        spnegosecurity.setHandler(getCurrentSecurityHandler());*/
+        spnegosecurity.setConstraintMappings(cmapList,knownRoles);
+       // spnegosecurity.setHandler(getCurrentSecurityHandler());
 
     }
 
     @Override
     public void doStart() throws Exception {
-      //  spnegosecurity.doStart();
+        spnegosecurity.doStart();
         basicsecurity.doStart();
+        super.doStart();
     }
 
 
    @Override
     public void handle(String target, Request baseRequest, HttpServletRequest request, HttpServletResponse response) throws IOException, ServletException {
 
-      //  HttpServletRequest req = (HttpServletRequest)request;
-      //  String header = req.getHeader(HttpHeader.AUTHORIZATION.asString());
-      //  if(header ==null){
-            basicsecurity.handle(target,baseRequest,request,response);
-      //  }
+       //spnegosecurity.handle(target, baseRequest, request, response);
 
+        HttpServletRequest req = (HttpServletRequest)baseRequest;
+        String header = req.getHeader(HttpHeader.AUTHORIZATION.asString());
+       HttpSession session = req.getSession(true);
+       Authentication authentication = (Authentication) session.getAttribute("org.eclipse.jetty.security.UserIdentity");
+       String uri = req.getRequestURI();
+       auth = "spnego";
+    /*   if(header != null && header.startsWith("NEGOTIATE")){
+           auth = "spnego";
+       } */
+
+/* if(header == null && authentication == null && uri.equals("/login")) {
+          response.setHeader(HttpHeader.WWW_AUTHENTICATE.asString(), HttpHeader.NEGOTIATE.asString());
+        response.sendError(401);
+        baseRequest.setHandled(true);
+            Handler handler = this.getHandler();
+            handler.handle(target, baseRequest, request, response);
+        }*/
+
+        //if(authentication != null)
+         if( auth.equals("spnego") ){
+            spnegosecurity.handle(target, baseRequest, request, response);
+        }
+        //}
+       else  {
+            basicsecurity.handle(target, baseRequest, request, response);
+          //  spnegosecurity.handle(target, baseRequest, request, response);
+
+            }
+
+    }
+
+    @Override
+    public void setHandler(Handler handler) {
+        super.setHandler(handler);
+        spnegosecurity.setHandler(handler);
+        basicsecurity.setHandler(handler);
+
+
+    }
+
+   /* @Override
+    public void setRoles(Set<String> roles) {
+        Set<String> updatedRoleSets = basicsecurity.getRoles();
+        updatedRoleSets.addAll(roles);
+        basicsecurity.setRoles(updatedRoleSets);
+        Set<String> updatedRoleSet = spnegosecurity.getRoles();
+        updatedRoleSet.addAll(roles);
+        spnegosecurity.setRoles(updatedRoleSet);
 
 
     }

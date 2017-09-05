@@ -75,7 +75,10 @@
               </#if>
               <li><a href="http://drill.apache.org/docs/">Documentation</a>
               <#if showLogin == true >
-              <li><a href="/login">Log In</a>
+              <ul class ="nav navbar-nav">
+                <li><a href="/sn">SSO</a></li>
+                <li><a href="/login">Log In</a></li>
+               </ul>
               </#if>
               <#if showLogout == true >
               <li><a href="/logout">Log Out (${loggedInUserName})</a>
